@@ -1,70 +1,81 @@
-# Getting Started with Create React App
+# React 18 Hooks - useTransition vs useDeferredValue
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+## useTranstion
 
-## Available Scripts
+```
+const [isPending, startTransition] = useTransition();
+```
 
-In the project directory, you can run:
+Returns a stateful value for the pending state of the transition, and a function to start it.
 
-### `npm start`
+startTransition lets you mark updates in the provided callback as transitions:
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+```
+startTransition(() => {
+  setCount(count + 1);
+})
+```
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+isPending indicates when a transition is active to show a pending state:
 
-### `npm test`
+```
+function App() {
+  const [isPending, startTransition] = useTransition();
+  const [count, setCount] = useState(0);
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+  function handleClick() {
+    startTransition(() => {
+      setCount(c => c + 1);
+    })
+  }
 
-### `npm run build`
+  return (
+    <div>
+      {isPending && <Spinner />}
+      <button onClick={handleClick}>{count}</button>
+    </div>
+  );
+}
+```
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+Note: Updates in a transition yield to more urgent updates such as clicks.
+Updates in a transition will not show a fallback for re-suspended content. This allows the user to continue interacting with the current content while rendering the update.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## useDeferredValue
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```
+const deferredValue = useDeferredValue(value);
+```
 
-### `npm run eject`
+useDeferredValue accepts a value and returns a new copy of the value that will defer to more urgent updates. If the current render is the result of an urgent update, like user input, React will return the previous value and then render the new value after the urgent render has completed.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+This hook is similar to user-space hooks which use debouncing or throttling to defer updates. The benefits to using useDeferredValue is that React will work on the update as soon as other work finishes (instead of waiting for an arbitrary amount of time), and like startTransition, deferred values can suspend without triggering an unexpected fallback for existing content.
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+### Memoizing deferred children
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+useDeferredValue only defers the value that you pass to it. If you want to prevent a child component from re-rendering during an urgent update, you must also memoize that component with React.memo or React.useMemo:
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+```
+function Typeahead() {
+  const query = useSearchQuery('');
+  const deferredQuery = useDeferredValue(query);
 
-## Learn More
+  // Memoizing tells React to only re-render when deferredQuery changes,
+  // not when query changes.
+  const suggestions = useMemo(() =>
+    <SearchSuggestions query={deferredQuery} />,
+    [deferredQuery]
+  );
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+  return (
+    <>
+      <SearchInput query={query} />
+      <Suspense fallback="Loading results...">
+        {suggestions}
+      </Suspense>
+    </>
+  );
+}
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Memoizing the children tells React that it only needs to re-render them when deferredQuery changes and not when query changes. This caveat is not unique to useDeferredValue, and it’s the same pattern you would use with similar hooks that use debouncing or throttling.
